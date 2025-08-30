@@ -5,12 +5,10 @@
   Using 2D spatial indexing to avoid overlapping labels and markers
   and to find labels underneath a mouse cursor's position
 */
-'use strict';
-const RBush = require('rbush');
-const stringWidth = require('string-width');
+import RBush from 'rbush';
+import stringWidth from 'string-width';
 
-module.exports = class LabelBuffer {
-
+export class LabelBuffer {
   constructor() {
     this.tree = new RBush();
     this.margin = 5;

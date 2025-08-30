@@ -4,17 +4,16 @@
 
   Handling of and access to single VectorTiles
 */
-'use strict';
-const VectorTile = require('@mapbox/vector-tile').VectorTile;
-const Protobuf = require('pbf');
-const zlib = require('zlib');
-const RBush = require('rbush');
-const x256 = require('x256');
+import { VectorTile } from '@mapbox/vector-tile';
+import Protobuf from 'pbf';
+import RBush from 'rbush';
+import x256 from 'x256';
+import pako from 'pako';
 
-const config = require('./config');
-const utils = require('./utils');
+import config from './config.js';
+import { utils } from './utils.js';
 
-class Tile {
+export class Tile {
   constructor(styler) {
     this.styler = styler;
   }
@@ -36,12 +35,13 @@ class Tile {
   _unzipIfNeeded(buffer) {
     return new Promise((resolve, reject) => {
       if (this._isGzipped(buffer)) {
-        zlib.gunzip(buffer, (err, data) => {
-          if (err) {
-            reject(err);
-          }
-          resolve(data);
-        });
+        try {
+          const uint8Array = new Uint8Array(buffer);
+          const unzipped = pako.ungzip(uint8Array);
+          resolve(unzipped.buffer);
+        } catch (err) {
+          reject(err);
+        }
       } else {
         resolve(buffer);
       }
@@ -49,7 +49,8 @@ class Tile {
   }
 
   _isGzipped(buffer) {
-    return buffer.slice(0, 2).indexOf(Buffer.from([0x1f, 0x8b])) === 0;
+    const view = new Uint8Array(buffer);
+    return view.length >= 2 && view[0] === 0x1f && view[1] === 0x8b;
   }
 
   _loadLayers() {
@@ -163,5 +164,3 @@ class Tile {
 }
 
 Tile.prototype.layers = {};
-
-module.exports = Tile;

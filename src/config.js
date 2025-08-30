@@ -1,11 +1,9 @@
-module.exports = {
+const config = {
   language: 'en',
 
   source: 'https://tiles.openfreemap.org/planet/map/',
 
-  //source: __dirname+"/../mbtiles/regensburg.mbtiles",
-
-  styleFile: __dirname+'/../styles/dark.json',
+  styleFile: '/styles/dark.json',
 
   initialZoom: null,
   maxZoom: 18,
@@ -23,7 +21,7 @@ module.exports = {
   useBraille: true,
 
   // Downloaded files get persisted in ~/.mapscii
-  persistDownloadedTiles: true,
+  persistDownloadedTiles: false,
 
   tileRange: 14,
   projectSize: 256,
@@ -43,12 +41,11 @@ module.exports = {
     }
   },
 
-  input: process.stdin,
-  output: process.stdout,
-
   headless: false,
 
   delimeter: '\n\r',
 
   poiMarker: '◉',
 };
+
+export default config;

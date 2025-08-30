@@ -4,34 +4,15 @@
 
   Source for VectorTiles - supports
   * remote TileServer
-  * local MBTiles and VectorTiles
 */
-'use strict';
-const fs = require('fs');
-const path = require('path');
-const fetch = require('node-fetch');
-const envPaths = require('env-paths');
-const paths = envPaths('mapscii');
-
-const Tile = require('./Tile');
-const config = require('./config');
-
-// https://github.com/mapbox/node-mbtiles has native build dependencies (sqlite3)
-// To maximize MapSCII’s compatibility, MBTiles support must be manually added via
-// $> npm install -g @mapbox/mbtiles
-let MBTiles = null;
-try {
-  MBTiles = require('@mapbox/mbtiles');
-} catch (err) {void 0;}
+import { Tile } from './Tile.js';
 
 const modes = {
-  MBTiles: 1,
-  VectorTile: 2,
   HTTP: 3,
 };
 
-class TileSource {
-  async init(source) {
+export class TileSource {
+  init(source) {
     this.source = source;
     
     this.cache = {};
@@ -39,59 +20,17 @@ class TileSource {
     this.cached = [];
     
     this.mode = null;
-    this.mbtiles = null;
     this.styler = null;
-    this.maxZoom = null;
     
     if (this.source.startsWith('http')) {
-      if (config.persistDownloadedTiles) {
-        this._initPersistence();
-      }
-
       this.mode = modes.HTTP;
-      this.maxZoom = config.maxZoom;
-
-    } else if (this.source.endsWith('.mbtiles')) {
-      if (!MBTiles) {
-        throw new Error('MBTiles support must be installed with following command: \'npm install -g @mapbox/mbtiles\'');
-      }
-
-      this.mode = modes.MBTiles;
-      await this.loadMBTiles(source);
     } else {
-      throw new Error('source type isn\'t supported yet');
+      throw new Error('Only HTTP/HTTPS tile sources are supported.');
     }
-  }
-
-  loadMBTiles(source) {
-    return new Promise((resolve, reject) => {
-      new MBTiles(source, (err, mbtiles) => {
-        if (err) {
-          reject(err);
-        }
-        this.mbtiles = mbtiles;
-
-        this.mbtiles._db.all(
-          'SELECT MAX(zoom_level) as max_zoom FROM tiles',
-          (err, rows) => {
-            if (err || !rows || !rows[0]) {
-              this.maxZoom = config.maxZoom;
-            } else {
-              this.maxZoom = rows[0].max_zoom || config.maxZoom;
-            }
-            resolve();
-          }
-        );
-      });
-    });
   }
 
   useStyler(styler) {
     this.styler = styler;
-  }
-
-  getMaxZoom() {
-    return this.maxZoom;
   }
 
   getTile(z, x, y) {
@@ -112,41 +51,32 @@ class TileSource {
     }
   
     switch (this.mode) {
-      case modes.MBTiles:
-        return this._getMBTile(z, x, y);
       case modes.HTTP:
         return this._getHTTP(z, x, y);
     }
   }
 
   _getHTTP(z, x, y) {
-    let promise;
-    const persistedTile = this._getPersited(z, x, y);
-    if (config.persistDownloadedTiles && persistedTile) {
-      promise = Promise.resolve(persistedTile);
-    } else {
-      promise = fetch(this.source + [z,x,y].join('/') + '.pbf')
-        .then((res) => res.buffer())
-        .then((buffer) => {
-          if (config.persistDownloadedTiles) {
-            this._persistTile(z, x, y, buffer);
-          }
-          return buffer;
-        });
-    }
-    return promise.then((buffer) => {
+    const url = this.source + [z, x, y].join('/') + '.pbf';
+    
+    return fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/x-protobuf',
+      },
+    })
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      return response.arrayBuffer();
+    })
+    .then((buffer) => {
       return this._createTile(z, x, y, buffer);
-    });
-  }
-
-  _getMBTile(z, x, y) {
-    return new Promise((resolve, reject) => {
-      this.mbtiles.getTile(z, x, y, (err, buffer) => {
-        if (err) {
-          reject(err);
-        }
-        resolve(this._createTile(z, x, y, buffer));
-      });
+    })
+    .catch((error) => {
+      console.error(`Failed to fetch tile ${z}/${x}/${y}:`, error);
+      throw error;
     });
   }
 
@@ -157,39 +87,4 @@ class TileSource {
     const tile = this.cache[name] = new Tile(this.styler);
     return tile.load(buffer);
   }
-
-  _initPersistence() {
-    try {
-      this._createFolder(paths.cache);
-    } catch (error) {
-      config.persistDownloadedTiles = false;
-    }
-  }
-
-  _persistTile(z, x, y, buffer) {
-    const zoom = z.toString();
-    this._createFolder(path.join(paths.cache, zoom));
-    const filePath = path.join(paths.cache, zoom, `${x}-${y}.pbf`);
-    return fs.writeFile(filePath, buffer, () => null);
-  }
-
-  _getPersited(z, x, y) {
-    try {
-      return fs.readFileSync(path.join(paths.cache, z.toString(), `${x}-${y}.pbf`));
-    } catch (error) {
-      return false;
-    }
-  }
-
-  _createFolder(path) {
-    try {
-      fs.mkdirSync(path);
-      return true;
-    } catch (error) {
-      if (error.code === 'EEXIST') return true;
-      throw error;
-    }
-  }
 }
-
-module.exports = TileSource;

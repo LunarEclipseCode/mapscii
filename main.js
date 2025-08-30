@@ -1,87 +1,101 @@
-/*#
+/*
   MapSCII - Terminal Map Viewer
   by Michael Strassburger <codepoet@cpan.org>
   Discover the planet in your console!
+*/
+import { Terminal } from 'xterm';
+import { FitAddon } from 'xterm-addon-fit';
+import { WebglAddon } from 'xterm-addon-webgl';
+import { Mapscii } from './src/Mapscii.js';
+import config from './src/config.js';
 
-  This scripts boots up the application.
-
-  TODO: params parsing and so on
-#*/
-'use strict';
-const config = require('./src/config');
-const Mapscii = require('./src/Mapscii');
-const argv = require('yargs')
-  .option('latitude', {
-    alias: 'lat',
-    description: 'Latitude of initial centre',
-    default: config.initialLat,
-    type: 'number',
-  })
-  .option('longitude', {
-    alias: 'lon',
-    description: 'Longitude of initial centre',
-    default: config.initialLon,
-    type: 'number',
-  })
-  .option('zoom', {
-    alias: 'z',
-    description: 'Initial zoom',
-    default: config.initialZoom,
-    type: 'number',
-  })
-  .option('width', {
-    alias: 'w',
-    description: 'Fixed width of rendering',
-    type: 'number',
-  })
-  .option('height', {
-    alias: 'h',
-    description: 'Fixed height of rendering',
-    type: 'number',
-  })
-  .option('braille', {
-    alias: 'b',
-    description: 'Activate braille rendering',
-    default: config.useBraille,
-    type: 'boolean',
-  })
-  .option('headless', {
-    alias: 'H',
-    description: 'Activate headless mode',
-    default: config.headless,
-    type: 'boolean',
-  })
-  .option('tile_source', {
-    alias: 'tileSource',
-    description: 'URL or path to osm2vectortiles source',
-    default: config.source,
-    type: 'string',
-  })
-  .option('style_file', {
-    alias: 'style',
-    description: 'path to json style file',
-    default: config.styleFile,
-    type: 'string',
-  })
-  .strict()
-  .argv;
+const urlParams = new URLSearchParams(window.location.search);
 
 const options = {
-  initialLat: argv.latitude,
-  initialLon: argv.longitude,
-  initialZoom: argv.zoom,
+  initialLat: parseFloat(urlParams.get('lat')) || config.initialLat,
+  initialLon: parseFloat(urlParams.get('lon')) || config.initialLon,
+  initialZoom: parseFloat(urlParams.get('zoom')) || config.initialZoom,
   size: {
-    width: argv.width,
-    height: argv.height
+    width: parseInt(urlParams.get('width')) || null,
+    height: parseInt(urlParams.get('height')) || null
   },
-  useBraille: argv.braille,
-  headless: argv.headless,
-  source: argv.tile_source,
-  styleFile: argv.style_file,
+  source: config.source,
+  styleFile: config.styleFile,
 };
 
-const mapscii = new Mapscii(options);
-mapscii.init().catch((err) => {
-  console.error('Failed to start MapSCII.');
-  console.error(err);
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
+// Wait for DOM to be ready
+document.addEventListener('DOMContentLoaded', async () => {
+  const terminalContainer = document.getElementById('terminal');
+  if (!terminalContainer) {
+    console.error('Terminal container element not found.');
+    return;
+  }
+
+  const terminalConfig = {
+    fontSize: 16,
+    cursorBlink: false,
+    theme: {
+      background: '#000000',
+      foreground: '#ffffff',
+    },
+    convertEol: true,
+  };
+
+  // When scrollback is enabled, zooming in/out via trackpad is buggy on firefox
+  if (!!window.chrome) {
+    terminalConfig.scrollback = false;
+  }
+
+  const terminal = new Terminal(terminalConfig);
+
+  // Fit addon for responsive sizing
+  const fitAddon = new FitAddon();
+  terminal.loadAddon(fitAddon);
+
+  try {
+    const webglAddon = new WebglAddon();
+    terminal.loadAddon(webglAddon);
+  } catch (e) {
+    console.warn('WebGL addon failed to load, falling back to canvas renderer');
+  }
+    
+  terminal.open(terminalContainer);
+  fitAddon.fit();
+
+  let mapscii;
+
+  // Debounced resize handler to prevent excessive redraws
+  const debouncedResize = debounce(() => {
+    fitAddon.fit();
+    if (mapscii) {
+      // Clear terminal before resize operations
+      terminal.clear();
+      mapscii._resizeHandler();
+      mapscii._draw();
+    }
+  }, 150);
+
+  window.addEventListener('resize', debouncedResize);
+
+  try {
+    // Create and initialize MapSCII
+    mapscii = new Mapscii(options, terminal);
+    await mapscii.init();
+    
+  } catch (error) {
+    console.error('Failed to start MapSCII:', error);
+    terminal.write(`\r\n\x1b[31mFailed to start MapSCII: ${error.message}\x1b[0m\r\n`);
+  }
 });

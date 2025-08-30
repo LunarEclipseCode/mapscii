@@ -4,14 +4,13 @@
 
   methods used all around
 */
-'use strict';
-const config = require('./config');
+import config from './config.js';
 
 const constants = {
   RADIUS: 6378137,
 };
 
-const utils = {
+export const utils = {
   clamp: (num, min, max) => {
     if (num <= min) {
       return min;
@@ -99,5 +98,3 @@ const utils = {
     return bits;
   },
 };
-
-module.exports = utils;

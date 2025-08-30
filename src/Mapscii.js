@@ -4,103 +4,147 @@
 
   UI and central command center
 */
-'use strict';
-const fs = require('fs');
-const keypress = require('keypress');
-const TermMouse = require('term-mouse');
+import { Renderer } from './Renderer.js';
+import { TileSource } from './TileSource.js';
+import { utils } from './utils.js';
+import config from './config.js';
 
-const Renderer = require('./Renderer');
-const TileSource = require('./TileSource');
-const utils = require('./utils');
-let config = require('./config');
-
-class Mapscii {
-  constructor(options) {
+export class Mapscii {
+  constructor(options = {}, terminal) {
+    this.terminal = terminal;
     this.width = null;
     this.height = null;
     this.canvas = null;
-    this.mouse = null;
-
     this.mouseDragging = false;
     this.mousePosition = {
       x: 0,
       y: 0,
     };
 
+    // Mouse control variables
+    this.allowClickToCenter = true;
+    this.allowDragging = false;
+    this.allowMouseZoom = false;
+
     this.tileSource = null;
     this.renderer = null;
 
     this.zoom = 0;
     this.minZoom = null;
-    this.maxZoom = null;
-    config = Object.assign(config, options);
+    
+    Object.assign(config, options);
 
     this.center = {
       lat: config.initialLat,
       lon: config.initialLon
     };
+
+    config.input = this.terminal;
+    config.output = this.terminal;
   }
 
   async init() {
-    if (!config.headless) {
-      this._initKeyboard();
-      this._initMouse();
-    }
-    await this._initTileSource();
-    this._initRenderer();
+    this._initKeyboard();
+    this._initMouse();
+    this._initTileSource();
+    await this._initRenderer();
+    this._resizeHandler();
     this._draw();
     this.notify('Welcome to MapSCII! Use your cursors to navigate, a/z to zoom, q to quit.');
   }
 
-
-  async _initTileSource() {
+  _initTileSource() {
     this.tileSource = new TileSource();
-    await this.tileSource.init(config.source);
-    this.maxZoom = this.tileSource.getMaxZoom();
+    this.tileSource.init(config.source);
   }
 
   _initKeyboard() {
-    keypress(config.input);
-    if (config.input.setRawMode) {
-      config.input.setRawMode(true);
-    }
-    config.input.resume();
+    this.terminal.onKey(({ key, domEvent }) => {
+      this._onKey({
+        name: this._translateKey(domEvent.key, domEvent),
+        ctrl: domEvent.ctrlKey,
+        meta: domEvent.metaKey,
+        shift: domEvent.shiftKey
+      });
+    });
 
-    config.input.on('keypress', (ch, key) => this._onKey(key));
+    document.addEventListener('keydown', (event) => {
+      if (event.ctrlKey && (event.key === '+' || event.key === '=' || event.key === '-')) {
+        event.preventDefault();
+        if (event.key === '+' || event.key === '=') {
+          this.zoomBy(config.zoomStep);
+          this._draw();
+        } else if (event.key === '-') {
+          this.zoomBy(-config.zoomStep);
+          this._draw();
+        }
+      }
+    });
+
+    this.terminal.focus();
+  }
+
+  _translateKey(key, domEvent) {
+    switch (key) {
+      case 'ArrowUp': return 'up';
+      case 'ArrowDown': return 'down';
+      case 'ArrowLeft': return 'left';
+      case 'ArrowRight': return 'right';
+      default: return key.toLowerCase();
+    }
   }
 
   _initMouse() {
-    this.mouse = TermMouse({
-      input: config.input,
-      output: config.output,
-    });
-    this.mouse.start();
-
-    this.mouse.on('click', (event) => this._onClick(event));
-    this.mouse.on('scroll', (event) => this._onMouseScroll(event));
-    this.mouse.on('move', (event) => this._onMouseMove(event));
-  }
-
-  _initRenderer() {
-    const style = JSON.parse(fs.readFileSync(config.styleFile, 'utf8'));
-    this.renderer = new Renderer(config.output, this.tileSource, style);
-
-    config.output.on('resize', () => {
-      this._resizeRenderer();
-      this._draw();
+    this.terminal.onSelectionChange(() => {
+      // Disable text selection to allow for mouse dragging
     });
 
-    this._resizeRenderer();
-    this.zoom = (config.initialZoom !== null) ? config.initialZoom : this.minZoom;
+    // Handle mouse events
+    this.terminal.element.addEventListener('mousedown', (event) => this._onMouseDown(event));
+    this.terminal.element.addEventListener('mouseup', (event) => this._onMouseUp(event));
+    this.terminal.element.addEventListener('mousemove', (event) => this._onMouseMove(event));
+    this.terminal.element.addEventListener('wheel', (event) => this._onMouseScroll(event));
+    this.terminal.element.addEventListener('click', (event) => this._onClick(event));
   }
 
-  _resizeRenderer() {
-    this.width = config.size && config.size.width ? config.size.width * 2 : config.output.columns >> 1 << 2;
-    this.height = config.size && config.size.height ? config.size.height * 4 : config.output.rows * 4 - 4;
+  async _initRenderer() {
+    try {
+      const response = await fetch(config.styleFile);
+      const style = await response.json();
+      this.renderer = new Renderer(this.terminal, this.tileSource, style);
 
-    this.minZoom = 4-Math.log(4096/this.width)/Math.LN2;
+      this._resizeHandler();
+      this.zoom = (config.initialZoom !== null) ? config.initialZoom : this.minZoom;
+    } catch (error) {
+      console.error('Failed to load style:', error);
+      throw error;
+    }
+  }
 
-    this.renderer.setSize(this.width, this.height);
+  _resizeHandler() {
+    // Reserve space for status messages
+    const reservedRows = 1;
+    const usableRows = Math.max(1, this.terminal.rows - reservedRows);
+    
+    // Use terminal dimensions
+    this.width = config.size && config.size.width ? config.size.width * 2 : this.terminal.cols * 2;
+    this.height = config.size && config.size.height ? config.size.height * 4 : usableRows * 4;
+
+    this.minZoom = 4 - Math.log(4096 / this.width) / Math.LN2;
+
+    if (this.renderer) {
+      this.renderer.setSize(this.width, this.height);
+    }
+  }
+
+  _getMousePosition(event) {
+    const rect = this.terminal.element.getBoundingClientRect();
+    const charWidth = rect.width / this.terminal.cols;
+    const charHeight = rect.height / this.terminal.rows;
+    
+    const x = Math.floor((event.clientX - rect.left) / charWidth);
+    const y = Math.floor((event.clientY - rect.top) / charHeight);
+    return { x, y };
   }
 
   _colrow2ll(x, y) {
@@ -119,16 +163,23 @@ class Mapscii {
   }
 
   _updateMousePosition(event) {
-    this.mousePosition = this._colrow2ll(event.x, event.y);
+    const mousePos = this._getMousePosition(event);
+    this.mousePosition = this._colrow2ll(mousePos.x, mousePos.y);
   }
 
   _onClick(event) {
-    if (event.x < 0 || event.x > this.width/2 || event.y < 0 || event.y > this.height/4) {
+    // Check if click to center is enabled
+    if (!this.allowClickToCenter) {
+      return;
+    }
+
+    const mousePos = this._getMousePosition(event);
+    if (mousePos.x < 0 || mousePos.x > this.width / 2 || mousePos.y < 0 || mousePos.y > this.height / 4) {
       return;
     }
     this._updateMousePosition(event);
 
-    if (this.mouseDragging && event.button === 'left') {
+    if (this.mouseDragging && event.button === 0) {
       this.mouseDragging = false;
     } else {
       this.setCenter(this.mousePosition.lat, this.mousePosition.lon);
@@ -137,17 +188,50 @@ class Mapscii {
     this._draw();
   }
 
+  _onMouseDown(event) {
+    if (!this.allowDragging) {
+      return;
+    }
+
+    if (event.button === 0) {
+      const mousePos = this._getMousePosition(event);
+      this.mouseDragging = {
+        x: mousePos.x,
+        y: mousePos.y,
+        center: utils.ll2tile(this.center.lon, this.center.lat, utils.baseZoom(this.zoom)),
+      };
+    }
+  }
+
+  _onMouseUp(event) {
+    if (!this.allowDragging) {
+      return;
+    }
+
+    if (event.button === 0) {
+      this.mouseDragging = false;
+    }
+  }
+
   _onMouseScroll(event) {
+    // Check if mouse zoom is enabled
+    if (!this.allowMouseZoom) {
+      return;
+    }
+
+    event.preventDefault();
     this._updateMousePosition(event);
 
+    const mousePos = this._getMousePosition(event);
+
     // the location of the pointer, where we want to zoom toward
-    const targetMouseLonLat = this._colrow2ll(event.x, event.y);
+    const targetMouseLonLat = this._colrow2ll(mousePos.x, mousePos.y);
 
     // zoom toward the center
-    this.zoomBy(config.zoomStep * (event.button === 'up' ? 1 : -1));
+    this.zoomBy(config.zoomStep * (event.deltaY < 0 ? 1 : -1));
 
     // the location the pointer ended up after zooming
-    const offsetMouseLonLat = this._colrow2ll(event.x, event.y);
+    const offsetMouseLonLat = this._colrow2ll(mousePos.x, mousePos.y);
 
     const z = utils.baseZoom(this.zoom);
     // the projected locations
@@ -170,38 +254,25 @@ class Mapscii {
   }
 
   _onMouseMove(event) {
-    if (event.x < 0 || event.x > this.width/2 || event.y < 0 || event.y > this.height/4) {
+    const mousePos = this._getMousePosition(event);
+    if (mousePos.x < 0 || mousePos.x > this.width / 2 || mousePos.y < 0 || mousePos.y > this.height / 4) {
       return;
     }
-    if (config.mouseCallback && !config.mouseCallback(event)) {
-      return;
-    }
 
-    // start dragging
-    if (event.button === 'left') {
-      if (this.mouseDragging) {
-        const dx = (this.mouseDragging.x-event.x)*2;
-        const dy = (this.mouseDragging.y-event.y)*4;
+    if (this.allowDragging && this.mouseDragging) {
+      const dx = (this.mouseDragging.x - mousePos.x) * 2;
+      const dy = (this.mouseDragging.y - mousePos.y) * 4;
 
-        const size = utils.tilesizeAtZoom(this.zoom);
+      const size = utils.tilesizeAtZoom(this.zoom);
 
-        const newCenter = utils.tile2ll(
-          this.mouseDragging.center.x+(dx/size),
-          this.mouseDragging.center.y+(dy/size),
-          utils.baseZoom(this.zoom)
-        );
+      const newCenter = utils.tile2ll(
+        this.mouseDragging.center.x + (dx / size),
+        this.mouseDragging.center.y + (dy / size),
+        utils.baseZoom(this.zoom)
+      );
 
-        this.setCenter(newCenter.lat, newCenter.lon);
-
-        this._draw();
-
-      } else {
-        this.mouseDragging = {
-          x: event.x,
-          y: event.y,
-          center: utils.ll2tile(this.center.lon, this.center.lat, utils.baseZoom(this.zoom)),
-        };
-      }
+      this.setCenter(newCenter.lat, newCenter.lon);
+      this._draw();
     }
 
     this._updateMousePosition(event);
@@ -209,19 +280,11 @@ class Mapscii {
   }
 
   _onKey(key) {
-    if (config.keyCallback && !config.keyCallback(key)) return;
     if (!key || !key.name) return;
 
     // check if the pressed key is configured
     let draw = true;
     switch (key.name) {
-      case 'q':
-        if (config.quitCallback) {
-          config.quitCallback();
-        } else {
-          process.exit(0);
-        }
-        break;
       case 'a':
         this.zoomBy(config.zoomStep);
         break;
@@ -272,29 +335,28 @@ class Mapscii {
 
     let footer = `center: ${utils.digits(this.center.lat, 3)}, ${utils.digits(this.center.lon, 3)} `;
     footer += `  zoom: ${utils.digits(this.zoom, 2)} `;
-    if (this.mousePosition.lat !== undefined) {
-      footer += `  mouse: ${utils.digits(this.mousePosition.lat, 3)}, ${utils.digits(this.mousePosition.lon, 3)} `;
-    }
+    // if (this.mousePosition && this.mousePosition.lat !== undefined) {
+    //   footer += `  mouse: ${utils.digits(this.mousePosition.lat, 3)}, ${utils.digits(this.mousePosition.lon, 3)} `;
+    // }
     return footer;
   }
 
   notify(text) {
-    config.onUpdate && config.onUpdate();
-    if (!config.headless) {
-      this._write('\r\x1B[K' + text);
-    }
+    // Position cursor at bottom of screen for status messages
+    const statusRow = Math.floor(this.height / 4) + 1; // Move to row after map area
+    this._write(`\x1B[${statusRow};1H\x1B[K${text}`); // Position cursor and clear line
   }
 
   _write(output) {
-    config.output.write(output);
+    this.terminal.write(output);
   }
 
   zoomBy(step) {
     if (this.zoom+step < this.minZoom) {
       return this.zoom = this.minZoom;
     }
-    if (this.zoom+step > this.maxZoom) {
-      return this.zoom = this.maxZoom;
+    if (this.zoom+step > config.maxZoom) {
+      return this.zoom = config.maxZoom;
     }
 
     this.zoom += step;
@@ -311,5 +373,3 @@ class Mapscii {
     });
   }
 }
-
-module.exports = Mapscii;

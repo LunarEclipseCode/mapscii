@@ -4,19 +4,18 @@
 
   The Console Vector Tile renderer - bäm!
 */
-'use strict';
-const x256 = require('x256');
-const simplify = require('simplify-js');
+import x256 from 'x256';
+import simplify from 'simplify-js';
 
-const Canvas = require('./Canvas');
-const LabelBuffer = require('./LabelBuffer');
-const Styler = require('./Styler');
-const utils = require('./utils');
-const config = require('./config');
+import { Canvas } from './Canvas.js';
+import { LabelBuffer } from './LabelBuffer.js';
+import { Styler } from './Styler.js';
+import { utils } from './utils.js';
+import config from './config.js';
 
-class Renderer {
-  constructor(output, tileSource, style) {
-    this.output = output;
+export class Renderer {
+  constructor(terminal, tileSource, style) {
+    this.terminal = terminal;
     this.tileSource = tileSource;
     this.labelBuffer = new LabelBuffer();
     this.styler = new Styler(style);
@@ -169,10 +168,9 @@ class Renderer {
 
   _getFrame() {
     let frame = '';
-    if (!this.lastDrawAt) {
-      frame += this.terminal.CLEAR;
-    }
-    frame += this.terminal.MOVE;
+    // Clear screen and move cursor to home position to redraw
+    frame += '\x1B[2J';   // Clear entire screen
+    frame += '\x1B[H';    // Move cursor to home position (1,1)
     frame += this.canvas.frame();
     return frame;
   }
@@ -323,15 +321,9 @@ class Renderer {
   }
 }
 
-Renderer.prototype.terminal = {
-  CLEAR: '\x1B[2J',
-  MOVE: '\x1B[?6h',
-};
 
 Renderer.prototype.isDrawing = false;
 Renderer.prototype.lastDrawAt = 0;
 Renderer.prototype.labelBuffer = null;
 Renderer.prototype.tileSource = null;
 Renderer.prototype.tilePadding = 64;
-
-module.exports = Renderer;
