@@ -1,7 +1,7 @@
 {
   "name": "dark",
   "constants": {
-    "@admin_level_2": "#fff",
+    "@admin_level_2": "#aac",
     "@admin_level_2_disputed": "#fff",
     "@admin_level_2_maritime": "#9bf",
     "@admin_level_3": "#aac",
@@ -1187,7 +1187,8 @@
           "maritime",
           0
         ]
-      ]
+      ],
+      "minzoom": 2.5
     },
     {
       "type": "line",
@@ -1711,7 +1712,8 @@
           "rank",
           4
         ]
-      ]
+      ],
+      "minzoom": 4
     },
     {
       "type": "symbol",
@@ -1732,7 +1734,8 @@
           "rank",
           3
         ]
-      ]
+      ],
+      "minzoom": 3
     },
     {
       "type": "symbol",
@@ -1753,7 +1756,8 @@
           "rank",
           2
         ]
-      ]
+      ],
+      "minzoom": 2
     },
     {
       "type": "symbol",
@@ -1774,7 +1778,8 @@
           "rank",
           1
         ]
-      ]
+      ],
+      "minzoom": 1
     }
   ]
 }
