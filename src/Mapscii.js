@@ -32,6 +32,7 @@ class Mapscii {
 
     this.zoom = 0;
     this.minZoom = null;
+    this.maxZoom = null;
     config = Object.assign(config, options);
 
     this.center = {
@@ -55,6 +56,7 @@ class Mapscii {
   async _initTileSource() {
     this.tileSource = new TileSource();
     await this.tileSource.init(config.source);
+    this.maxZoom = this.tileSource.getMaxZoom();
   }
 
   _initKeyboard() {
@@ -291,8 +293,8 @@ class Mapscii {
     if (this.zoom+step < this.minZoom) {
       return this.zoom = this.minZoom;
     }
-    if (this.zoom+step > config.maxZoom) {
-      return this.zoom = config.maxZoom;
+    if (this.zoom+step > this.maxZoom) {
+      return this.zoom = this.maxZoom;
     }
 
     this.zoom += step;
