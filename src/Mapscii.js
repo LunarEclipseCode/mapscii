@@ -45,16 +45,16 @@ class Mapscii {
       this._initKeyboard();
       this._initMouse();
     }
-    this._initTileSource();
+    await this._initTileSource();
     this._initRenderer();
     this._draw();
     this.notify('Welcome to MapSCII! Use your cursors to navigate, a/z to zoom, q to quit.');
   }
 
 
-  _initTileSource() {
+  async _initTileSource() {
     this.tileSource = new TileSource();
-    this.tileSource.init(config.source);
+    await this.tileSource.init(config.source);
   }
 
   _initKeyboard() {

@@ -31,7 +31,7 @@ const modes = {
 };
 
 class TileSource {
-  init(source) {
+  async init(source) {
     this.source = source;
     
     this.cache = {};
@@ -55,7 +55,7 @@ class TileSource {
       }
 
       this.mode = modes.MBTiles;
-      this.loadMBTiles(source);
+      await this.loadMBTiles(source);
     } else {
       throw new Error('source type isn\'t supported yet');
     }
