@@ -118,13 +118,14 @@ class Renderer {
       }
       
       const scale = layer.extent / utils.tilesizeAtZoom(zoom);
+      const searchPadding = this.tilePadding * scale;
       layers[layerId] = {
         scale: scale,
         features: layer.tree.search({
-          minX: -position.x * scale,
-          minY: -position.y * scale,
-          maxX: (this.width - position.x) * scale,
-          maxY: (this.height - position.y) * scale
+          minX: (-position.x - searchPadding) * scale,
+          minY: (-position.y - searchPadding) * scale,
+          maxX: (this.width - position.x + searchPadding) * scale,
+          maxY: (this.height - position.y + searchPadding) * scale
         }),
       };
     }
